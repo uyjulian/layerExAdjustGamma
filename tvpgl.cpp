@@ -2,6 +2,10 @@
 
 #include "tvpgl.h"
 #include <math.h>
+#include <simde/x86/mmx.h>
+
+#define BYTEn(x, n)  (*((tjs_uint8 *)&(x) + n))
+#define BYTE1(x)  BYTEn(x, 1)
 
 static tjs_uint32 TVPRecipTable256[256]; /* 1/x  table  ( 65536 ) multiplied */
 static tjs_uint16 TVPRecipTable256_16[256]; /* 1/x  table  ( 65536 ) multiplied,
@@ -87,64 +91,60 @@ TVP_GL_FUNC_DECL(void, TVPAdjustGamma_c, (tjs_uint32 *dest, tjs_int len, tTVPGLG
 }
 TVP_GL_FUNC_DECL(void, TVPAdjustGamma_a_c, (tjs_uint32 *dest, tjs_int len, tTVPGLGammaAdjustTempData *temp))
 {
-	/* gamma adjustment for additive alpha */
+	tjs_uint32 * v3;  // edi
+	tjs_uint32 * v4;  // esi
+	tjs_uint32   v5;  // eax
+	simde__m64    v6;  // mm2
+	simde__m64    v9;  // mm1
+	simde__m64    v10; // mm3
+	simde__m64    v11; // mm3
+	simde__m64    v12; // mm6
+	tjs_uint32   v13; // eax
+
+	v3 = dest;
+	v4 = &dest[len];
+	if (dest < v4)
 	{
-		for(int ___index = 0; ___index < len; ___index++)
+		do
 		{
+			while (1)
 			{
-				tjs_uint32 d;
-				tjs_int alpha;
-				tjs_int alpha_adj;
-				tjs_int recip;
-				tjs_int t, d_tmp;
-
-				d = dest[___index];
-
-				if(d >= 0xff000000u)
-				{
-					/* completely opaque */
-					t = d & 0xffu;
-					d_tmp =   temp->B[t];
-					t = (d>>8u) & 0xffu;
-					d_tmp |=  temp->G[t] << 8u;
-					t = (d>>16u) & 0xffu; 
-					d_tmp |=  temp->R[t] << 16u;
-					d_tmp |= 0xff000000u;
-					dest[___index] = d_tmp;
-				}
-				else if(d != 0u)
-				{
-					/* not completely transparent */
-					alpha = d >> 24u;
-					alpha_adj = alpha + (alpha >> 7u);
-					recip = TVPRecipTable256_16[alpha];
-
-					/* B */
-					t = d & 0xffu;
-					if(t > alpha)
-						d_tmp = (temp->B[255u] * alpha_adj >> 8u) + t - alpha;
-					else
-						d_tmp = temp->B[recip * t >> 8u] * alpha_adj >> 8u;
-					/* G */
-					t = (d>>8u) & 0xffu; 
-					if(t > alpha)
-						d_tmp |= ((temp->G[255u] * alpha_adj >> 8u) + t - alpha) << 8u;
-					else
-						d_tmp |= (temp->G[recip * t >> 8u] * alpha_adj >> 8u) << 8u;
-					/* R */
-					t = (d>>16u) & 0xffu; 
-					if(t > alpha)
-						d_tmp |= ((temp->R[255u] * alpha_adj >> 8u) + t - alpha) << 16u;
-					else
-						d_tmp |= (temp->R[recip * t >> 8u] * alpha_adj >> 8u) << 16u;
-					/* A */
-					d_tmp |= d & 0xff000000u;
-
-					dest[___index] = d_tmp;
-				}
+				v5 = *v3;
+				if (*v3 < 0xFF000000)
+					break;
+				*v3 = (temp->R[(v5 >> 16) & 0xFF] << 16) | (temp->G[BYTE1(v5)] << 8) | temp->B[(tjs_uint8)v5] | 0xFF000000;
+			_TVPAdjustGamma_a_mmx_pfraction_a_ptransp:
+				++v3;
+				if (v3 >= v4)
+					goto _TVPAdjustGamma_a_mmx_pfraction_a_pexit;
 			}
-		}
+			if (!v5)
+				goto _TVPAdjustGamma_a_mmx_pfraction_a_ptransp;
+			v6  = simde_m_punpcklbw(simde_mm_cvtsi32_si64(v5), simde_mm_setzero_si64());
+			v9  = simde_mm_set1_pi16(TVPRecipTable256_16[v5 >> 24]);
+			v10 = simde_mm_set1_pi16(v5 >> 24);
+			v11 = v10;
+			v12 = simde_mm_cvtsi32_si64(v5 & 0xFF000000);
+			v13 = simde_mm_cvtsi64_si32(simde_m_packuswb(simde_m_por(simde_m_psrlwi(simde_m_pmullw(v9, v6), 8u), simde_m_psrlwi(simde_m_pcmpgtw(v6, v11), 8u)), simde_mm_setzero_si64()));
+			++v3;
+			*(v3 - 1) = simde_mm_cvtsi64_si32(
+				simde_m_por(
+					simde_m_packuswb(
+						simde_m_paddw(
+							simde_m_psrlwi(
+								simde_m_pmullw(
+									simde_m_punpcklbw(
+										simde_mm_cvtsi32_si64((temp->R[(v13 >> 16) & 0xFF] << 16) | (temp->G[BYTE1(v13)] << 8) | (tjs_uint32)temp->B[(tjs_uint8)v13]),
+										simde_mm_setzero_si64()),
+									simde_m_paddw(v11, simde_m_psrlwi(v11, 7u))),
+								8u),
+							simde_m_psubusb(v6, v11)),
+						simde_mm_setzero_si64()),
+					v12));
+		} while (v3 < v4);
 	}
+_TVPAdjustGamma_a_mmx_pfraction_a_pexit:
+	simde_m_empty();
 }
 
 TVP_GL_FUNC_DECL(void, TVPUninitGammaAdjustTempData_c, (tTVPGLGammaAdjustTempData *temp))
